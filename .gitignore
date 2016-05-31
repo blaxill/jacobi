@@ -1,3 +1,4 @@
 target
 Cargo.lock
-examples/fluid-frame*.ppm
+images/
+
