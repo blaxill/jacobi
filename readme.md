@@ -6,6 +6,8 @@ iteration](https://en.wikipedia.org/wiki/Jacobi_method) using a given
 
 # Fluid example
 
+![fluid image](https://raw.githubusercontent.com/blaxill/jacobi/master/fluid-example.gif)
+
 An example of using the jacobi method to solve the discrete pressure Poisson
 equation that arrises in fluid simulation is given. The fluid simulation example
 can be run through Cargo, and the resulting .ppm frames can be assembled with
