@@ -16,6 +16,6 @@ ffmpeg:
 ~~~bash
 cargo run --release --example fluid
 
-ffmpeg -y -r 60 -f image2 -i examples/fluid-frame%d.ppm -vcodec libx264 -pix_fmt yuv420p -crf 1 -threads 0 -bf 0 images/fluid.mp4
+ffmpeg -y -r 60 -f image2 -i images/fluid-frame%d.ppm -vcodec libx264 -pix_fmt yuv420p -crf 1 -threads 0 -bf 0 images/fluid.mp4
 ~~~
 
