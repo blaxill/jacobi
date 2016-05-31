@@ -1,37 +1,27 @@
-#![feature(alloc_system)]
-
 extern crate nalgebra;
 extern crate jacobi;
-extern crate alloc_system;
+extern crate pbr;
 
-use jacobi::{jacobi_iter, StencilElement};
-use nalgebra::{DVector, Vector2};
 use std::io::Write;
 use std::fs::File;
 use std::f32;
+use std::thread;
+use pbr::ProgressBar;
+
+use jacobi::{jacobi_iter, StencilElement};
+use nalgebra::{DVector, Vector2};
 
 pub fn write_ppm<W: Write>(w: &mut W,
                         c: &DVector<f32>,
-                        v: &DVector<Vector2<f32>>,
                         width: usize, height: usize) {
-    write!(w, "P3\n{} {}\n255\n", width, height).unwrap();
+    write!(w, "P2\n{} {}\n255\n", width, height).unwrap();
 
     let f = |v| -> u8 {(v * 255f32) as u8};
-    let n = |v: f32| -> u8 {(v * 128f32 + 128f32) as u8};
 
     for i in 0..height {
         for j in 0..width {
-            if cfg!(debug) {
-                write!(w, "{} {} {} ",
-                       f(c[j + 256*i]),
-                       n(v[j + 256*i].x),
-                       n(v[j + 256*i].y)).unwrap();
-            } else { 
-                write!(w, "{} {} {} ",
-                       f(c[j + 256*i]),
-                       f(c[j + 256*i]),
-                       f(c[j + 256*i])).unwrap();
-            }
+            write!(w, "{} ",
+                   f(c[j + 256*i])).unwrap();
         }
         write!(w, "\n").unwrap();
     }
@@ -42,10 +32,12 @@ fn main() {
     let size = 256*256;
     let stencil = [
         StencilElement{offset:1, value:1f32},
-        StencilElement{offset:256, value:1f32}
+        StencilElement{offset:256, value:1f32},
+        StencilElement{offset:-1, value:1f32},
+        StencilElement{offset:-256, value:1f32}
     ];
-    let indexer = |x: usize, y: usize| -> usize { x + 256*y };
 
+    let indexer = |x: usize, y: usize| -> usize { x + 256*y };
 
     let mut color_grid = DVector::<f32>::new_zeros(size);
     let mut velocity_grid = DVector::<Vector2<f32>>::new_zeros(size);
@@ -53,9 +45,13 @@ fn main() {
     let mut next_velocity_grid = DVector::<Vector2<f32>>::new_zeros(size);
     let mut divergence = DVector::<f32>::new_zeros(size);
     let mut pressure_grid = DVector::<f32>::new_zeros(size);
+    let mut next_pressure_grid = DVector::<f32>::new_zeros(size);
 
-    // Simulate 200 timesteps.
-    for _ in 0..200 {
+    println!("Simulating 1000 frames.");
+    let mut progress_bar = ProgressBar::new(1000);
+    for frame in 0..1000 {
+        progress_bar.inc();
+
         velocity_grid[indexer(127,0)] = Vector2::new(0.0f32, 3.0f32);
         velocity_grid[indexer(128,0)] = Vector2::new(0.0f32, 3.0f32);
         velocity_grid[indexer(126,0)] = Vector2::new(0.0f32, 3.0f32);
@@ -133,8 +129,11 @@ fn main() {
 
         // 3. Approximate pressure jacobi iterations.
         for _ in 0..50 { 
-            jacobi_iter(-0.25f32, &stencil, &stencil,
-                        &mut pressure_grid, &divergence);
+            jacobi_iter(-0.25f32, stencil.iter(), 
+                        &pressure_grid, 
+                        &mut next_pressure_grid, 
+                        &divergence);
+            std::mem::swap(&mut pressure_grid, &mut next_pressure_grid);
         }
 
         // 4. Apply pressure.
@@ -159,8 +158,12 @@ fn main() {
                 velocity_grid[indexer(x, y)] -= Vector2::new(vx, vy);
             }
         }
+        let buffer = color_grid.clone();
+        let frame = frame;
+        thread::spawn(move || {
+            let mut file = File::create(
+                &format!("images/fluid-frame{}.ppm", frame)).unwrap();
+            let _ = write_ppm(&mut file, &buffer, 256, 256);
+        });
     }
-
-    let mut file = File::create("out.ppm").unwrap();
-    let _ = write_ppm(&mut file, &color_grid, &velocity_grid, 256, 256);
 }

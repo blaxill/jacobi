@@ -1,5 +1,3 @@
-#![feature(test)]
-
 extern crate nalgebra;
 #[cfg(test)]
 extern crate test;
@@ -8,81 +6,78 @@ use nalgebra::{BaseFloat, Indexable};
 
 #[derive(Clone)]
 pub struct StencilElement<N: BaseFloat> {
-    pub offset: usize,
+    pub offset: isize,
     pub value: N,
 }
 
-pub fn jacobi_iter<N, V>(id_inverse: N,
-                         pos_stencil: &[StencilElement<N>],
-                         neg_stencil: &[StencilElement<N>],
-                         x: &mut V, b: &V)
-    where N: BaseFloat,
-          V: Indexable<usize, N> {
+/// Computes a [jacobi iteration](https://en.wikipedia.org/wiki/Jacobi_method)
+/// using a [stencil](https://en.wikipedia.org/wiki/Stencil_code). Reapted
+/// applications of this method solve Ax=b, where the matrix A can be
+/// represented by a stencil. `id_inverse` is the inverse of the main diagonal
+/// element A_ii. `stencil` is some iterable representing the other stencil
+/// elements of A.
+/// 
+/// # Examples
+///
+/// Using the jacobi method to approximate pressure from the divergence of a
+/// velocity field in a 256x256 grid:
+///
+/// ```
+/// let size = 256*256;
+/// let stencil = [ 
+///     StencilElement{offset:1, value:1f32}, 
+///     StencilElement{offset:256, value:1f32}, 
+///     StencilElement{offset:-1, value:1f32}, 
+///     StencilElement{offset:-256, value:1f32} 
+/// ];
+///
+/// let divergence = DVector::<f32>::new_zeros(size); 
+/// let mut pressure_grid = DVector::<f32>::new_zeros(size); 
+/// let mut refined_pressure_grid = DVector::<f32>::new_zeros(size);
+///
+/// for _ in 0..50 { 
+///     jacobi_iter(-0.25f32, stencil.iter(), 
+///         &pressure_grid, 
+///         &mut refined_pressure_grid, 
+///         &divergence);
+///     std::mem::swap(&mut pressure_grid, &mut refined_pressure_grid);
+/// }
+///
+/// let _ = pressure_grid;
+///
+/// ```
+///
+pub fn jacobi_iter<'a, Float, Vector, Stencil>(id_inverse: Float,
+                                               stencil: Stencil,
+                                               x: &Vector,
+                                               x_n: &mut Vector,
+                                               b: &Vector)
+    where Float: 'static + BaseFloat,
+          Vector: Indexable<usize, Float>,
+          Stencil: Iterator<Item = &'a StencilElement<Float>>
+{
     //
+    use std::cmp::{max, min};
     let len = x.shape();
 
     for i in 0..len {
-        let mut sigma: N = N::zero();
-
-        for s in pos_stencil.iter() {
-            let idx = i + s.offset;
-            if idx >= len { continue; }
-            sigma = sigma + s.value * x[idx];
+        unsafe {
+            x_n.unsafe_set(i, b.unsafe_at(i) * id_inverse);
         }
-
-        for s in neg_stencil.iter() {
-            if i <= s.offset { continue; }
-            let idx = i - s.offset;
-            sigma = sigma + s.value * x[idx];
-        }
-
-        let x_i = (b[i] - sigma) * id_inverse;
-        x[i] = x_i;
     }
-}
 
-#[test]
-fn jacobi_test() {
-    use nalgebra::DVector;
-    let stencil = [
-        StencilElement{offset:1, value:-1f32},
-        StencilElement{offset:10, value:-1f32}
-    ];
-    let b = DVector::<f32>::new_random(100);
-    let mut x = DVector::<f32>::new_zeros(100);
+    for s in stencil {
+        let start = max(-s.offset, 0) as usize;
+        let stop = min(len as isize - s.offset, len as isize) as usize;
+        let multiplier = s.value * id_inverse;
 
-    for _ in 0..1 {
-        jacobi_iter(4f32, &stencil, &stencil, &mut x, &b);
-    } 
+        for i in start..stop {
+            let sample_offset = (i as isize + s.offset) as usize;
+            let current = unsafe { x_n.unsafe_at(i) };
+            unsafe {
+                x_n.unsafe_set(i, current - x.unsafe_at(sample_offset) * multiplier);
+            };
+        }
 
-    let x_1 = x.clone();
-
-    for _ in 0..10 {
-        jacobi_iter(4f32, &stencil, &stencil, &mut x, &b);
-    } 
-
-    for _ in 0..1000 {
-        jacobi_iter(4f32, &stencil, &stencil, &mut x, &b);
-    } 
-
-    let x_1011 = x.clone();
-
-    for _ in 0..1000 {
-        jacobi_iter(4f32, &stencil, &stencil, &mut x, &b);
-    } 
-
-    assert!(x_1 != x);
-    assert!(x_1011 == x); // Converged.
-}
-
-#[bench]
-fn bench_safe (bench: &mut test::Bencher) { 
-    use nalgebra::DVector;
-    let stencil = [
-        StencilElement{offset:1, value:-1f32},
-        StencilElement{offset:10, value:-1f32}
-    ];
-    let b = DVector::<f32>::new_random(100);
-    let mut x = DVector::<f32>::new_zeros(100);
-    bench.iter(|| jacobi_iter(4f32, &stencil, &stencil, &mut x, &b));
+    }
 }

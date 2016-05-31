@@ -5,10 +5,8 @@ authors = ["Ben"]
 
 [dependencies]
 nalgebra = "*"
+pbr = "*"
 
 [lib]
 name = "jacobi"
 path = "src/lib.rs"
-
-[profile.release]
-debug = true
